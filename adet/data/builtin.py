@@ -55,7 +55,7 @@ _PREDEFINED_SPLITS_WISDOM = {
 }
 
 
-def register_all_wisdom(root="./datasets"):
+def register_all_wisdom(root="/kaggle/input/uoais-sim-dataset"):
     for key, (image_root, json_file) in _PREDEFINED_SPLITS_WISDOM.items():
         # Assume pre-defined datasets live in `./datasets`.
         if "occ" in key:
