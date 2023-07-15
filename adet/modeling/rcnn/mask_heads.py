@@ -563,7 +563,18 @@ class VisibleMaskRCNNConvUpsampleHead(nn.Module):
             stride=2,
             padding=0,
         )
-        
+        self.query_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1, padding=0,
+                                               bias=False)
+        self.key_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1, padding=0,
+                                             bias=False)
+        self.value_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1, padding=0,
+                                               bias=False)
+        self.output_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1, padding=0,
+                                                bias=False)
+
+        self.scale = 1.0 / (self.input_channels ** 0.5)
+        self.blocker_bound_bo = nn.BatchNorm2d(self.input_channels, eps=1e-04)  # should be zero initialized
+
         self.mlc_layers = []
         self.mlc_layers.append(Conv2d(2*conv_dims, 2*conv_dims, 3, 1, 1, activation=F.relu))
         self.mlc_layers.append(Conv2d(2*conv_dims, 2*conv_dims, 3, 1, 1, activation=F.relu))
@@ -608,15 +619,69 @@ class VisibleMaskRCNNConvUpsampleHead(nn.Module):
         if self.hom and self.guidance_type == "concat":
             for layer in self.guide_conv_layers:
                 x = layer(x)
-
+        B, C, H, W = x.size()
         for i, layer in enumerate(self.conv_norm_relus):
             if i == 0 and self.MLC:
                 x = layer(x)
+                if min(x.shape) != 0:
+                    # x: B,C,H,W
+                    # x_query: B,C,HW
+                    # x_input = AddCoords()(x)
+                    x_query_bound_bo = self.query_transform_bound_bo(x).view(B, C, -1)
+                    # x_query: B,HW,C
+                    x_query_bound_bo = torch.transpose(x_query_bound_bo, 1, 2)
+                    # x_key: B,C,HW
+                    x_key_bound_bo = self.key_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,C,HW
+                    x_value_bound_bo = self.value_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,HW,C
+                    x_value_bound_bo = torch.transpose(x_value_bound_bo, 1, 2)
+                    # W = Q^T K: B,HW,HW
+                    x_w_bound_bo = torch.matmul(x_query_bound_bo, x_key_bound_bo) * self.scale
+                    x_w_bound_bo = F.softmax(x_w_bound_bo, dim=-1)
+                    # x_relation = WV: B,HW,C
+                    x_relation_bound_bo = torch.matmul(x_w_bound_bo, x_value_bound_bo)
+                    # x_relation = B,C,HW
+                    x_relation_bound_bo = torch.transpose(x_relation_bound_bo, 1, 2)
+                    # x_relation = B,C,H,W
+                    x_relation_bound_bo = x_relation_bound_bo.view(B, C, H, W)
+
+                    x_relation_bound_bo = self.output_transform_bound_bo(x_relation_bound_bo)
+                    x_relation_bound_bo = self.blocker_bound_bo(x_relation_bound_bo)
+
+                    x = x + x_relation_bound_bo
                 x = torch.cat([x, extracted_features], 1)
                 for mlc_layer in self.mlc_layers:
                     x = mlc_layer(x)
             else:
                 x = layer(x)
+                if min(x.shape) != 0:
+                    # x: B,C,H,W
+                    # x_query: B,C,HW
+                    # x_input = AddCoords()(x)
+                    x_query_bound_bo = self.query_transform_bound_bo(x).view(B, C, -1)
+                    # x_query: B,HW,C
+                    x_query_bound_bo = torch.transpose(x_query_bound_bo, 1, 2)
+                    # x_key: B,C,HW
+                    x_key_bound_bo = self.key_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,C,HW
+                    x_value_bound_bo = self.value_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,HW,C
+                    x_value_bound_bo = torch.transpose(x_value_bound_bo, 1, 2)
+                    # W = Q^T K: B,HW,HW
+                    x_w_bound_bo = torch.matmul(x_query_bound_bo, x_key_bound_bo) * self.scale
+                    x_w_bound_bo = F.softmax(x_w_bound_bo, dim=-1)
+                    # x_relation = WV: B,HW,C
+                    x_relation_bound_bo = torch.matmul(x_w_bound_bo, x_value_bound_bo)
+                    # x_relation = B,C,HW
+                    x_relation_bound_bo = torch.transpose(x_relation_bound_bo, 1, 2)
+                    # x_relation = B,C,H,W
+                    x_relation_bound_bo = x_relation_bound_bo.view(B, C, H, W)
+
+                    x_relation_bound_bo = self.output_transform_bound_bo(x_relation_bound_bo)
+                    x_relation_bound_bo = self.blocker_bound_bo(x_relation_bound_bo)
+
+                    x = x + x_relation_bound_bo
         mask_logits = self.predictor(F.relu(self.deconv(x)))
         return mask_logits, x
 
@@ -673,6 +738,23 @@ class AmodalMaskRCNNConvUpsampleHead(nn.Module):
             stride=2,
             padding=0,
         )
+
+        self.query_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1,
+                                               padding=0,
+                                               bias=False)
+        self.key_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1,
+                                             padding=0,
+                                             bias=False)
+        self.value_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1,
+                                               padding=0,
+                                               bias=False)
+        self.output_transform_bound_bo = Conv2d(self.input_channels, self.input_channels, kernel_size=1, stride=1,
+                                                padding=0,
+                                                bias=False)
+
+        self.scale = 1.0 / (self.input_channels ** 0.5)
+        self.blocker_bound_bo = nn.BatchNorm2d(self.input_channels, eps=1e-04)  # should be zero initialized
+
         self.mlc_layers = []
         self.mlc_layers.append(Conv2d(2*conv_dims, 2*conv_dims, 3, 1, 1, activation=F.relu))
         self.mlc_layers.append(Conv2d(2*conv_dims, 2*conv_dims, 3, 1, 1, activation=F.relu))
@@ -712,18 +794,75 @@ class AmodalMaskRCNNConvUpsampleHead(nn.Module):
         Returns:
             mask_logits: predicted mask logits from given region features
         """
+
+
         if self.hom and self.guidance_type == "concat":
             for layer in self.guide_conv_layers:
                 x = layer(x)
-
+        B, C, H, W = x.size()
         for i, layer in enumerate(self.conv_norm_relus):
             if i == 0 and self.MLC:
                 x = layer(x)
+                if min(x.shape) != 0:
+                    # x: B,C,H,W
+                    # x_query: B,C,HW
+                    # x_input = AddCoords()(x)
+                    x_query_bound_bo = self.query_transform_bound_bo(x).view(B, C, -1)
+                    # x_query: B,HW,C
+                    x_query_bound_bo = torch.transpose(x_query_bound_bo, 1, 2)
+                    # x_key: B,C,HW
+                    x_key_bound_bo = self.key_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,C,HW
+                    x_value_bound_bo = self.value_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,HW,C
+                    x_value_bound_bo = torch.transpose(x_value_bound_bo, 1, 2)
+                    # W = Q^T K: B,HW,HW
+                    x_w_bound_bo = torch.matmul(x_query_bound_bo, x_key_bound_bo) * self.scale
+                    x_w_bound_bo = F.softmax(x_w_bound_bo, dim=-1)
+                    # x_relation = WV: B,HW,C
+                    x_relation_bound_bo = torch.matmul(x_w_bound_bo, x_value_bound_bo)
+                    # x_relation = B,C,HW
+                    x_relation_bound_bo = torch.transpose(x_relation_bound_bo, 1, 2)
+                    # x_relation = B,C,H,W
+                    x_relation_bound_bo = x_relation_bound_bo.view(B, C, H, W)
+
+                    x_relation_bound_bo = self.output_transform_bound_bo(x_relation_bound_bo)
+                    x_relation_bound_bo = self.blocker_bound_bo(x_relation_bound_bo)
+
+                    x = x + x_relation_bound_bo
                 x = torch.cat([x, extracted_features], 1)
                 for mlc_layer in self.mlc_layers:
                     x = mlc_layer(x)
             else:
                 x = layer(x)
+
+                if min(x.shape) != 0:
+                    # x: B,C,H,W
+                    # x_query: B,C,HW
+                    # x_input = AddCoords()(x)
+                    x_query_bound_bo = self.query_transform_bound_bo(x).view(B, C, -1)
+                    # x_query: B,HW,C
+                    x_query_bound_bo = torch.transpose(x_query_bound_bo, 1, 2)
+                    # x_key: B,C,HW
+                    x_key_bound_bo = self.key_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,C,HW
+                    x_value_bound_bo = self.value_transform_bound_bo(x).view(B, C, -1)
+                    # x_value: B,HW,C
+                    x_value_bound_bo = torch.transpose(x_value_bound_bo, 1, 2)
+                    # W = Q^T K: B,HW,HW
+                    x_w_bound_bo = torch.matmul(x_query_bound_bo, x_key_bound_bo) * self.scale
+                    x_w_bound_bo = F.softmax(x_w_bound_bo, dim=-1)
+                    # x_relation = WV: B,HW,C
+                    x_relation_bound_bo = torch.matmul(x_w_bound_bo, x_value_bound_bo)
+                    # x_relation = B,C,HW
+                    x_relation_bound_bo = torch.transpose(x_relation_bound_bo, 1, 2)
+                    # x_relation = B,C,H,W
+                    x_relation_bound_bo = x_relation_bound_bo.view(B, C, H, W)
+
+                    x_relation_bound_bo = self.output_transform_bound_bo(x_relation_bound_bo)
+                    x_relation_bound_bo = self.blocker_bound_bo(x_relation_bound_bo)
+
+                    x = x + x_relation_bound_bo
         mask_logits = self.predictor(F.relu(self.deconv(x)))
         return mask_logits, x
 
