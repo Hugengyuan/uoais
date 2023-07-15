@@ -33,7 +33,7 @@ _PREDEFINED_SPLITS_uoais = {
 }
 
 
-def register_all_uoais(root="/kaggle/input/uoais-sim-dataset"):
+def register_all_uoais(root="./datasets"):
     for key, (image_root, json_file) in _PREDEFINED_SPLITS_uoais.items():
         # Assume pre-defined datasets live in `./datasets`.
         amodal = "amodal" in key
