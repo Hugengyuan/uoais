@@ -505,13 +505,15 @@ class ORCNNROIHeads(ROIHeads):
             for p in proposals:
                 if p.has("gt_occluded_rate"):
                     gt_occludeds.append(p.gt_occluded_rate >= 0.05)
-            gt_occludeds = cat(gt_occludeds, dim=0).to(torch.int64)
-            n_occ, n_gt = torch.sum(gt_occludeds), gt_occludeds.shape[0]
-            n_noocc = n_gt - n_occ
-            loss = F.cross_entropy(occ_cls_logits, gt_occludeds, reduction="mean", 
-                                weight=torch.Tensor([1, n_noocc/n_occ]).to(device=gt_occludeds.device))
-            losses["loss_occ_cls"] = loss
-            
+            if gt_occludeds == []:
+                losses["loss_occ_cls"] = torch.tensor(0)
+            else:
+                gt_occludeds = cat(gt_occludeds, dim=0).to(torch.int64)
+                n_occ, n_gt = torch.sum(gt_occludeds), gt_occludeds.shape[0]
+                n_noocc = n_gt - n_occ
+                loss = F.cross_entropy(occ_cls_logits, gt_occludeds, reduction="mean", weight=torch.Tensor([1, n_noocc / n_occ]).to(device=gt_occludeds.device))
+                losses["loss_occ_cls"] = loss
+
         return losses, output_features, logits
 
     def _inference_single_mask(self, pred_target, features, mask_features_list, 

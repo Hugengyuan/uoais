@@ -1,6 +1,6 @@
 VERSION: 2
 MODEL:
-  META_ARCHITECTURE: "GeneralizedRCNN"
+  META_ARCHITECTURE: "AugFpnGeneralizedRCNN"
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   BACKBONE:
     NAME: "build_resnet_rgbd_latefusion_fpn_backbone"
@@ -14,10 +14,10 @@ MODEL:
   FPN:
     IN_FEATURES: ["res2", "res3", "res4", "res5"]
   ANCHOR_GENERATOR:
-    SIZES: [[16], [32], [64], [128], [256]]  # One size for each in feature map
+    SIZES: [[32], [64], [128], [256]]  # One size for each in feature map
     ASPECT_RATIOS: [[0.5, 1.0, 2.0]]  # Three aspect ratios (same for all in feature maps)
   RPN:
-    IN_FEATURES: ["p2", "p3", "p4", "p5", "p6"]
+    IN_FEATURES: ["p2", "p3", "p4", "p5"]
     PRE_NMS_TOPK_TRAIN: 2000  # Per FPN level
     PRE_NMS_TOPK_TEST: 1000  # Per FPN level
     POST_NMS_TOPK_TRAIN: 1000
@@ -51,7 +51,7 @@ MODEL:
   GUIDANCE_TYPE: "concat"
 
 SOLVER:
-  IMS_PER_BATCH: 2
+  IMS_PER_BATCH: 1
   BASE_LR: 0.00125  
   STEPS: (60000, 80000)
   MAX_ITER: 90000
